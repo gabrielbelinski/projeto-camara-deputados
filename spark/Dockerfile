@@ -23,7 +23,8 @@ RUN pip install --upgrade pip && \
     pip install --no-cache-dir \
     delta-spark==4.2.0 \
     python-dotenv \
-    requests
+    requests \
+    beautifulsoup4
 
 RUN chmod 644 /opt/spark/jars/*.jar
 
