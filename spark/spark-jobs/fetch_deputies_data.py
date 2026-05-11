@@ -5,8 +5,10 @@ import fetch_data as fd
 
 def main():
     session = ss.builder.appName("Fetch Deputies Data").getOrCreate()
-    df_legislatures = ss.read.parquet("s3a://personalprojects/chamber_project/bronze_layer/legislature_data/")
-    df = ss.read.option("multiLine", "true") \
+    session.sparkContext.addPyFile("/opt/spark/spark-jobs/fetch_data.py")
+    session.sparkContext.addPyFile("/opt/spark/spark-jobs/url_manipulation.py")
+    df_legislatures = session.read.parquet("s3a://personalprojects/chamber_project/bronze_layer/legislature_data/")
+    df = session.read.option("multiLine", "true") \
     .json(
             df_legislatures.select("id") \
             .rdd \

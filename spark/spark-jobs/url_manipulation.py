@@ -11,10 +11,14 @@ def append_query_param(base_url : str, params_dict: dict) -> str:
 
 def build_url_pattern_1(base_url: str, id_value, endpoint: str, id_param_name: str, params_dict: dict) -> str:
     id_param_dict = {id_param_name : id_value}
-    return append_query_param(base_url + "/" + endpoint, {**id_param_dict, **params_dict})   
+    if not base_url.endswith('/'):
+        base_url += '/'
+    return append_query_param(base_url + endpoint, {**id_param_dict, **params_dict})   
 
 def build_url_pattern_2(base_url: str, id_value, endpoint: str, params_dict : dict) -> str:
-    return append_query_param(base_url + id_value + "/" + endpoint, params_dict)
+    if not base_url.endswith('/'):
+        base_url += '/'
+    return append_query_param(base_url + str(id_value) + "/" + endpoint, params_dict)
 
 def detect_url_pattern(**kwargs) -> int:
     if 'endpoint' in kwargs.keys():
@@ -23,6 +27,3 @@ def detect_url_pattern(**kwargs) -> int:
         else:
             return 2
     return None
-
-
-

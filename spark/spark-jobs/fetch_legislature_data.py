@@ -8,7 +8,11 @@ def to_RDD(spark: ss, iterable) -> RDD[any]:
     return spark.sparkContext.parallelize(iterable)
 
 def main():
+    
     session = ss.builder.appName("Fetch Legislature Data").getOrCreate()
+    session.sparkContext.addPyFile("/opt/spark/spark-jobs/fetch_data.py")
+    session.sparkContext.addPyFile("/opt/spark/spark-jobs/url_manipulation.py")
+
     df = session.read.option("multiLine", "true") \
     .json(
         to_RDD(session, fd.make_requests("https://dadosabertos.camara.leg.br/api/v2/legislaturas"))
