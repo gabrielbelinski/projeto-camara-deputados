@@ -1,107 +1,136 @@
-from pyspark.core.rdd import RDD
 from pyspark.sql import SparkSession
-from pyspark.sql import Row
-from urllib import parse as p
-import requests, json, logging, time, url_manipulation
+from pyspark.sql.types import StructType, StructField, LongType, StringType, ShortType, ByteType, TimestampType, FloatType
+from pyspark.sql.functions import col, sha2, concat_ws
+import fetch_client as f, url_builders as u
+import argparse
 
-def fetch_data(url: str) -> list:
-    """
-    Função genérica para extração de dados a partir das APIs.
+parser = argparse.ArgumentParser()
+parser.add_argument("--entity", choices=['legislatures', 'parties', 'deputies', 'expenses'], type=str, required=True)
+args = parser.parse_args()
 
-    Args:
-        url (str): Qual é o endpoint desejado
-        map_fields: Função lambda para mapear as informações desejadas
+class ChamberData:
+    def __init__(self) -> None:
+        self.spark = SparkSession.builder.getOrCreate()
+        self.spark.sparkContext.addPyFile("/opt/spark/spark-jobs/fetch_client.py")
+        self.spark.sparkContext.addPyFile("/opt/spark/spark-jobs/retry_session.py")
+        self.spark.sparkContext.addPyFile("/opt/spark/spark-jobs/url_builders.py")
+        
+    def fetch_legislatures_data(self):
+        url = u.build_deputies_url()
+        with f.FetchClient() as client:
+            data = list(client.paginate(url))
+        
+        schema = StructType([
+            StructField("id", ShortType(), False),
+            StructField("uri", StringType(), False),
+            StructField("dataInicio", StringType(), False),
+            StructField("dataFim", StringType(), False)
+        ])
 
-    Returns: 
-        list: Resposta de requisição, filtrada conforme os campos passados como argumento.
+        self.df_legislatures_data = self.spark.createDataFrame(data, schema)
+        self.df_legislatures_data.write.parquet("s3a://personalprojects/chamber_project/bronze_layer/legislature_data/")
 
-    Raises:
-        Exception: Erro durante a requisição.
-    """
-    try:
-        response = requests.get(url)
-        response.raise_for_status()
-        return response.json()
-    except Exception:
-        raise Exception(f"Houve um erro durante a requisição.\nErro: {response.status_code} - {response.text}")
+    def fetch_parties_data(self):
+        url = u.build_parties_url()
 
-def make_requests(url : str, **kwargs):
-    """
-    Realiza requisições as APIs, com detecção de paginação. Método desenvolvido de acordo com as características da API de dados abertos da Cãmara dos Deputados.
+        with f.FetchClient() as client:
+            data = list(client.paginate(url))
+        
+        schema = StructType([
+            StructField("id", LongType(), False),
+            StructField("sigla", StringType(), True),
+            StructField("nome", StringType(), True),
+            StructField("uri", StringType(), True)
+        ])
 
-    Args:
-        url (str): URL a qual a requisição será realizada
+        self.df_parties_data = self.spark.createDataFrame(data, schema)
+        self.df_parties_data.write.parquet("s3a://personalprojects/chamber_project/bronze_layer/parties_data/")
 
-    Returns: 
-        iter(results): Retorna o resultado da requisição, em forma de objeto iterável.
-    Raises:
-        Exception: Erro durante a requisição.
-    """
-    results = []
-    # id_dep = kwargs.get('id_deputado')
-    if kwargs:
-        parts = list(p.urlparse(url))
-        query = dict(p.parse_qsl(parts[4]))
-        query.update(kwargs)
-        parts[4] = p.urlencode(query)
-        url = p.urlunparse(parts)
+    def fetch_deputies_data(self):
+        url = u.build_deputies_url()
 
-    try:
-        with requests.Session() as s:
-            while True:
-                response = s.get(url, timeout=10, headers={"accept": "application/json"})
-                response.raise_for_status()
-                json_response = response.json()
+        def legislatures_partition_udf(rows):
+            with f.FetchClient() as client:
+                for row in rows:
+                    yield from client.paginate(
+                        url, params={"idLegislatura": row["id"]}
+                    )
 
-                dados = json_response.get("dados", [])
-                if dados:
-                    for item in dados:
-                        # if id_dep:
-                        #     item['id_deputado'] = id_dep
-                        results.append(json.dumps(item))
-                        
-                links = json_response.get("links", [])
-                next_url = None
+        rdd = self.df_legislatures_data.rdd.mapPartitions(legislatures_partition_udf)
 
-                for link in links:
-                    if link["rel"] == "next":
-                        next_url = link["href"]
-                        break
+        schema = StructType([
+            StructField("id", LongType(), False),
+            StructField("uri", StringType(), True),
+            StructField("nome", StringType(), False),
+            StructField("siglaPartido", StringType(), True),
+            StructField("uriPartido", StringType(), True),
+            StructField("siglaUf", StringType(), True),
+            StructField("idLegislatura", ShortType(), False),
+            StructField("urlFoto", StringType(), True),
+            StructField("email", StringType(), True)
+        ])
 
-                if next_url and next_url != url:
-                    url = next_url
-                    #time.sleep(0.3) # Espera até a próxima requisição, visando eliminar 429 - Too Many Requests.
-                else:
-                    break
-    except Exception as e:
-        logging.error(e)
+        self.df_deputies_data = self.spark.createDataFrame(rdd, schema)
+        self.df_deputies_data.write.mode("overwrite").parquet("s3a://personalprojects/chamber_project/bronze_layer/deputies_data/")
+
+    def fetch_expenses_data(self):
+        
+        def expenses_partition_udf(rows):
+            with f.FetchClient() as client:
+                for row in rows:
+                    id_deputado = row["id"]
+                    url = u.build_expenses_url(id_deputado)
+
+                    for leg in range(54, 58):
+                        for item in client.paginate(url, params={"idLegislatura": leg, "itens": 100}):
+                            yield {
+                                **item, "id_deputado" : id_deputado, "id_legislatura": leg
+                            }
+
+        df_filtered = self.df_deputies_data.filter((col("idLegislatura")) >= 54).select("id").dropDuplicates()
+
+        rdd = df_filtered.rdd.mapPartitions(expenses_partition_udf)
+
+        schema = StructType([
+            StructField("id_deputado", LongType(), False),
+            StructField("id_legislatura", LongType(), False),
+            StructField("ano", ShortType(), False),
+            StructField("mes", ByteType(), False),
+            StructField("tipoDespesa", StringType(), True),
+            StructField("codDocumento", LongType(), True),
+            StructField("tipoDocumento", StringType(), True),
+            StructField("codTipoDocumento", ByteType(), True),
+            StructField("dataDocumento", TimestampType(), True),
+            StructField("numDocumento", LongType(), True),
+            StructField("valorDocumento", FloatType(), True),
+            StructField("urlDocumento", StringType(), True),
+            StructField("nomeFornecedor", StringType(), True),
+            StructField("cnpjCpfFornecedor", StringType(), True),
+            StructField("valorLiquido", FloatType(), True),
+            StructField("valorGlosa", FloatType(), True),
+            StructField("numRessarcimento", ByteType(), True),
+            StructField("codLote", LongType(), True),
+            StructField("parcela", ShortType(), True)
+        ])
     
-    return iter(results)
+        self.df_expenses_data = self.spark.createDataFrame(rdd, schema)
+        self.df_expenses_data = self.df_expenses_data.withColumn("id_despesa", sha2(concat_ws("|", col("id_deputado"), col("id_legislatura"), col("numDocumento"), col("valorDocumento")), 256))
 
-def fetch_data_v2(partition: RDD, column_name: str, url: str, endpoint : str = None, id_param_name : str = None, **kwargs):
-    final_url = url
-    for row in partition:
-        url_pattern = url_manipulation \
-            .detect_url_pattern(
-                                    endpoint=endpoint, 
-                                    id_param_name=id_param_name
-                                )
+        self.df_deputies_data.write.mode("append").partitionBy("id_legislatura", "ano", "mes").parquet("s3a://personalprojects/chamber_project/bronze_layer/expenses_data/")
 
-        if url_pattern == 1:
-            final_url = url_manipulation.build_url_pattern_1(url, row[column_name], endpoint, id_param_name, kwargs)
-        else:
-            final_url = url_manipulation.build_url_pattern_2(url, row[column_name], endpoint, kwargs)
-
-        yield from make_requests(final_url)
-
-def fetch_partitioned_data(partition : RDD, url : str, endpoint : str = None, id_param_name : dict = None, **kwargs):
-    for row in partition:
-        if endpoint:
-            if kwargs.get('id_deputado'):
-                kwargs.update({'id_deputado': row['id']})
-            yield from make_requests(url+ '/'+str(row['id'])+'/'+endpoint, **kwargs)
-        elif id_param_name:
-            kwargs.update(id_param_name)
-            yield from make_requests(url, **kwargs)
-        else:
-            yield from make_requests(url, **kwargs)
+if __name__ == '__main__':
+    job = ChamberData()
+    
+    match args.entity:
+        case 'legislatures':
+            job.fetch_legislatures_data()
+        case 'parties':
+            job.fetch_parties_data()
+        case 'deputies':
+            job.fetch_deputies_data()
+        case 'expenses':
+            job.fetch_expenses_data()
+        case _:
+            raise NotImplementedError("Opção inválida ou entidade não implementada")
+        
+    job.spark.stop()
