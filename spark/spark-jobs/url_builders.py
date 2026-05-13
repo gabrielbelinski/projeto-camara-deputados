@@ -11,3 +11,6 @@ def build_legislatures_url():
 
 def build_parties_url():
     return f"{BASE_URL}/partidos?"
+
+def build_parties_url_by_id(part_id):
+    return f"{BASE_URL}/partidos/{str(part_id)}"

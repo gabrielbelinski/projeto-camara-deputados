@@ -1,5 +1,5 @@
 from pyspark.sql import SparkSession
-from pyspark.sql.types import StructType, StructField, LongType, StringType, ShortType, ByteType, TimestampType, FloatType
+from pyspark.sql.types import StructType, StructField, LongType, StringType, ShortType, ByteType, TimestampType, FloatType, IntegerType, ArrayType
 from pyspark.sql.functions import col, sha2, concat_ws, expr
 import fetch_client as f, url_builders as u
 import argparse
@@ -52,12 +52,47 @@ class ChamberData:
 
         schema = StructType([
             StructField("id", LongType(), True),
-            StructField("sigla", StringType(), True),
-            StructField("nome", StringType(), True),
             StructField("uri", StringType(), True)
         ])
 
-        self.df_parties_data = self.spark.createDataFrame(rdd, schema)
+        def parties_partition_udf(rows):
+            with f.FetchClient() as client:
+                for row in rows:
+                    yield from client.paginate(row["uri"])
+
+        df_parties_w_id = self.spark.createDataFrame(rdd, schema)
+        df_parties_id = df_parties_w_id.dropDuplicates(["id"])
+        rdd_parties = df_parties_id.rdd.mapPartitions(parties_partition_udf)
+
+        schema_parties = StructType([
+            StructField("id", LongType(), True),
+            StructField("sigla", StringType(), True),
+            StructField("nome", StringType(), True),
+            StructField("uri", StringType(), True),
+            StructField("status", StructType([
+            StructField("data", StringType(), True),  # null no exemplo
+            StructField("idLegislatura", StringType(), True),
+            StructField("situacao", StringType(), True),
+            StructField("totalPosse", StringType(), True),
+            StructField("totalMembros", StringType(), True),
+            StructField("uriMembros", StringType(), True),
+            StructField("lider", StructType([
+                StructField("uri", StringType(), True),
+                StructField("nome", StringType(), True),
+                StructField("siglaPartido", StringType(), True),
+                StructField("uriPartido", StringType(), True),
+                StructField("uf", StringType(), True),
+                StructField("idLegislatura", IntegerType(), True),
+                StructField("urlFoto", StringType(), True),
+                ]), True),
+            ]), True),
+            StructField("numeroEleitoral", StringType(), True),
+            StructField("urlLogo", StringType(), True),
+            StructField("urlWebSite", StringType(), True),
+            StructField("urlFacebook", StringType(), True),
+        ])
+
+        self.df_parties_data = self.spark.createDataFrame(rdd_parties, schema_parties)
         print("Dataframe de partidos criado. Iniciando operação de armazenamento...")
         self.df_parties_data.write.mode("append").parquet("s3a://personalprojects/chamber_project/bronze_layer/parties_data/")
         print("Dados armazenados com sucesso. Obtenção de dados concluída.")
@@ -82,14 +117,71 @@ class ChamberData:
             StructField("siglaPartido", StringType(), True),
             StructField("uriPartido", StringType(), True),
             StructField("siglaUf", StringType(), True),
-            StructField("idLegislatura", ShortType(), True),
+            StructField("idLegislatura", IntegerType(), True),
             StructField("urlFoto", StringType(), True),
             StructField("email", StringType(), True)
         ])
 
-        self.df_deputies_data = self.spark.createDataFrame(rdd, schema)
+        def deputies_partition_udf(rows):
+            with f.FetchClient() as client:
+                for row in rows:
+                    yield from client.paginate(row["uri"])
+
+        df_deputies = self.spark.createDataFrame(rdd, schema)
+        df_deputies.withColumn("id_legislatura", col("idLegislatura")).withColumn("uf", col("siglaUf")).write.mode("overwrite").partitionBy("idLegislatura", "siglaUf").parquet("s3a://personalprojects/chamber_project/bronze_layer/deputies_legislature_data/")
+        df_deputies = df_deputies.dropDuplicates(["id"])
+        rdd_deputies = df_deputies.rdd.mapPartitions(deputies_partition_udf)
+
+        schema_deputies = StructType([
+            StructField("id", LongType(), True),
+            StructField("uri", StringType(), True),
+            StructField("nomeCivil", StringType(), True),
+            StructField("ultimoStatus", StructType([
+                StructField("id", LongType(), True),
+                StructField("uri", StringType(), True),
+                StructField("nome", StringType(), True),
+                StructField("siglaPartido", StringType(), True),
+                StructField("uriPartido", StringType(), True),
+                StructField("siglaUf", StringType(), True),
+                StructField("idLegislatura", IntegerType(), True),
+                StructField("urlFoto", StringType(), True),
+                StructField("email", StringType(), True),
+                StructField("data", StringType(), True),
+                StructField("nomeEleitoral", StringType(), True),
+                StructField("gabinete", StructType([
+                        StructField("nome", StringType(), True),
+                        StructField("predio", StringType(), True),
+                        StructField("sala", StringType(), True),
+                        StructField("andar", StringType(), True),
+                        StructField("telefone", StringType(), True),
+                        StructField("email", StringType(), True),
+                    ]), True),
+                StructField("situacao", StringType(), True),
+                StructField("condicaoEleitoral", StringType(), True),
+                StructField("descricaoStatus", StringType(), True),
+            ]), True),
+            StructField("cpf", StringType(), True),
+            StructField("sexo", StringType(), True),
+            StructField("urlWebsite", StringType(), True),
+            StructField(
+                "redeSocial",
+                ArrayType(StringType(), True),
+                True
+            ),
+
+            StructField("dataNascimento", StringType(), True),
+            StructField("dataFalecimento", StringType(), True),
+            StructField("ufNascimento", StringType(), True),
+            StructField("municipioNascimento", StringType(), True),
+            StructField("escolaridade", StringType(), True),
+        ])
+
+        self.df_deputies_data = self.spark.createDataFrame(rdd_deputies, schema_deputies)
+        self.df_deputies_data = self.df_deputies_data.withColumn("id_legislatura", col("ultimoStatus.idLegislatura"))
+        self.df_deputies_data = self.df_deputies_data.withColumn("sigla_uf", col("ultimoStatus.siglaUf"))
         print("Dataframe de deputados criado. Iniciando operação de armazenamento...")
-        self.df_deputies_data.write.mode("append").parquet("s3a://personalprojects/chamber_project/bronze_layer/deputies_data/")
+        self.df_deputies_data.write.mode("overwrite").partitionBy("id_legislatura", "sigla_uf") \
+            .parquet("s3a://personalprojects/chamber_project/bronze_layer/deputies_data/")
         print("Dados armazenados com sucesso. Obtenção de dados concluída.")
 
     def fetch_expenses_data(self):

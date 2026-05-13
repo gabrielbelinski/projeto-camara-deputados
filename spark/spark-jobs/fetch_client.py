@@ -19,16 +19,23 @@ class FetchClient:
         while url:
             try:
                 response = self.session.get(url, params=params, timeout=30, headers={"accept": "application/json", "User-Agent": "projeto-engdados-camara/1.0"})
+
+                if response.status_code == 404:
+                    return
+                
                 response.raise_for_status()
 
                 data_payload = response.json()
-                data = data_payload.get("dados")
-                links = data_payload.get("links")
+                data = data_payload.get("dados", [])
+                links = data_payload.get("links", [])
 
-                for item in data:
-                    yield item
+                if isinstance(data, dict):
+                    yield data
+                else:
+                    for item in data:
+                        yield item
                     
-                next_url = next((link["href"] for link in links if link["rel"] == "next"), None)
+                next_url = next((link.get("href") for link in links if link.get("rel") == "next"), None)
                 url = next_url
                 params = None 
             except RequestException as e:
