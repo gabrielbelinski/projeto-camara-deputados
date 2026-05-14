@@ -36,10 +36,6 @@ class GoldLayer:
 
         exp_type = exp.select("tipoDespesa").dropDuplicates()
         exp_type = exp_type.withColumn("sk_tipo_despesa", expr("uuid()"))
-        
 
-
-        
-
-
-        
+        dealer = exp.select("nomeFornecedor", "cnpjCpfFornecedor").dropDuplicates(["cnpjCpfFornecedor"])
+        dealer = dealer.withColumn("sk_fornecedor", expr("uuid()"))
