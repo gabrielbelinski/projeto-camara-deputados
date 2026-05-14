@@ -18,7 +18,7 @@ with DAG(
     }
 ) as dag:
     a = EmptyOperator(task_id="start")
-    b = BashOperator(task_id="submit_to_spark", bash_command=f"{c.COMMAND} --entity deputies") 
+    b = BashOperator(task_id="submit_to_spark", bash_command=f"{c.COMMAND} /opt/spark/spark-jobs/fetch_data.py --entity deputies") 
     c = TriggerDagRunOperator(task_id="end", trigger_dag_id="fetch_expenses_data", trigger_run_id="trigger_from_dep_{{ ds }}",  wait_for_completion=True, poke_interval=10)
 
     a >> b >> c

@@ -14,3 +14,6 @@ def build_parties_url():
 
 def build_parties_url_by_id(part_id):
     return f"{BASE_URL}/partidos/{str(part_id)}"
+
+def build_deputies_url_by_id(dep_id):
+    return f"{BASE_URL}/deputados/{str(dep_id)}"

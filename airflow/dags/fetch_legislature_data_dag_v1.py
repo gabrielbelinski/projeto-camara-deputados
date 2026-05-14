@@ -19,7 +19,7 @@ with DAG(
     }
 ) as dag:
     a = EmptyOperator(task_id="start")
-    b = BashOperator(task_id="submit_to_spark", bash_command=f"{c.COMMAND} --entity legislatures")
+    b = BashOperator(task_id="submit_to_spark", bash_command=f"{c.COMMAND} /opt/spark/spark-jobs/fetch_data.py --entity legislatures")
     c = TriggerDagRunOperator(task_id="end",trigger_dag_id="fetch_parties_data", trigger_run_id="trigger_from_leg_{{ ds }}",  wait_for_completion=True, poke_interval=10)
 
     a >> b >> c
