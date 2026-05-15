@@ -8,8 +8,8 @@ import command_fetch_data_base as c
 dotenv.load_dotenv()
 
 with DAG(
-    dag_id="fetch_expenses_data",
-    start_date=datetime.datetime(2026, 5, 15),
+    dag_id="silver_layer_processing",
+    start_date=datetime.datetime(2026, 5, 11),
     schedule=None,
     catchup=False,
     default_args={
@@ -18,7 +18,7 @@ with DAG(
     }
 ) as dag:
     a = EmptyOperator(task_id="start")
-    b = BashOperator(task_id="submit_to_spark", bash_command=f"{c.COMMAND} /opt/spark/spark-jobs/fetch_data.py --entity expenses") 
-    c = TriggerDagRunOperator(task_id="end",trigger_dag_id="silver_layer_processing", trigger_run_id="trigger_from_exp_{{ ds }}",  wait_for_completion=True, poke_interval=10)
+    b = BashOperator(task_id="submit_to_spark", bash_command=f"{c.COMMAND} /opt/spark/spark-jobs/silver_refactor.py") 
+    c = TriggerDagRunOperator(task_id="end",trigger_dag_id="gold_layer_processing", trigger_run_id="trigger_from_silver_{{ ds }}", wait_for_completion=True, poke_interval=10)
 
     a >> b >> c

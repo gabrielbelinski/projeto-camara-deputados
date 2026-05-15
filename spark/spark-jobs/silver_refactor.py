@@ -34,8 +34,7 @@ class SilverLayer:
         writer = (
             df.write
             .mode("overwrite")
-            .format("delta")
-            .option("compression", "snappy")
+            .format("parquet")
         )
 
         if partition_cols:
@@ -171,10 +170,12 @@ class SilverLayer:
             .dropDuplicates()
         )
 
+        df = df.withColumns({"mes1" : F.col("mes"), "ano1" : F.col("ano")})
+
         self.write_silver(
             df,
             "expenses_data",
-            partition_cols=["ano", "mes"]
+            partition_cols=["ano1", "mes1"]
         )
 
         print("Despesas processadas")

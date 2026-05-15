@@ -9,7 +9,7 @@ dotenv.load_dotenv()
 
 with DAG(
     dag_id="fetch_parties_data",
-    start_date=datetime.datetime(2026, 5, 11),
+    start_date=datetime.datetime(2026, 5, 15),
     schedule=None,
     catchup=False,
     default_args={

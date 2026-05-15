@@ -41,7 +41,7 @@ class GoldLayer:
             )
             .withColumn(
                 "sk_legislatura",
-                F.xxhash64("id")
+                F.monotonically_increasing_id()+1
             )
             .cache()
         )
@@ -60,7 +60,7 @@ class GoldLayer:
             )
             .withColumn(
                 "sk_partido",
-                F.xxhash64("sigla")
+                F.monotonically_increasing_id()+1
             )
             .cache()
         )
@@ -71,22 +71,22 @@ class GoldLayer:
             )
             .select(
                 "id",
-                "nomeCivil",
+                "nome_civil",
                 "nome_eleitoral",
                 "id_ultima_legislatura",
                 "ultima_filiacao",
                 "foto",
                 "situacao_atual",
                 "condicao_eleitoral_atual",
-                "dataNascimento",
-                "dataFalecimento",
+                "data_nascimento",
+                "data_falecimento",
                 "ufNascimento",
                 "municipioNascimento",
                 "escolaridade"
             )
             .withColumn(
                 "sk_deputado",
-                F.xxhash64("id")
+                F.monotonically_increasing_id()+1
             )
             .cache()
         )
@@ -96,11 +96,11 @@ class GoldLayer:
                 f"{self.SILVER_PATH}/expenses_data/"
             )
             .select(
-                "id_deputado1",
+                "id_deputado",
                 "id_legislatura",
-                "ano1",
-                "mes1",
-                "dataDocumento",
+                "ano",
+                "mes",
+                "data_documento",
                 "tipoDespesa",
                 "valorDocumento",
                 "urlDocumento",
@@ -111,11 +111,7 @@ class GoldLayer:
             )
             .withColumn(
                 "sk_despesa",
-                F.xxhash64(
-                    "id_deputado1",
-                    "dataDocumento",
-                    "valorDocumento"
-                )
+                F.monotonically_increasing_id()+1
             )
         )
 
@@ -146,7 +142,7 @@ class GoldLayer:
             .dropDuplicates()
             .withColumn(
                 "sk_tipo_despesa",
-                F.xxhash64("tipoDespesa")
+                F.monotonically_increasing_id()+1
             )
         )
 
@@ -161,10 +157,7 @@ class GoldLayer:
             )
             .withColumn(
                 "sk_fornecedor",
-                F.xxhash64(
-                    "nomeFornecedor",
-                    "cnpjCpfFornecedor"
-                )
+                F.monotonically_increasing_id()+1
             )
         )
 
@@ -191,7 +184,7 @@ class GoldLayer:
 
             .join(
                 broadcast(self.df_deputies.alias("dep")),
-                F.col("exp.id_deputado1") == F.col("dep.id"),
+                F.col("exp.id_deputado") == F.col("dep.id"),
                 "left"
             )
 
@@ -208,10 +201,10 @@ class GoldLayer:
                 "det.sk_tipo_despesa",
                 "prov.sk_fornecedor",
 
-                F.col("exp.ano1").alias("ano"),
-                F.col("exp.mes1").alias("mes"),
+                F.col("exp.ano").alias("ano"),
+                F.col("exp.mes").alias("mes"),
 
-                F.col("exp.dataDocumento").alias("data_despesa"),
+                F.col("exp.data_documento").alias("data_despesa"),
 
                 F.col("exp.valorDocumento").alias("valor_documento"),
 
@@ -230,9 +223,9 @@ class GoldLayer:
         
         self.fact_expenses.withColumns({"ano_despesa" :col("ano"), "mes_despesa" : col("mes")}).write \
         .mode("overwrite") \
-        .partitionBy("ano", "mes") \
+        .partitionBy("ano_despesa", "mes_despesa") \
         .format("delta") \
-        .save(f"{self.GOLD_PATH}/fact_expenses/expenses") 
+        .save(f"{self.GOLD_PATH}/expenses_data/expenses") 
 
 if __name__ == "__main__":
 

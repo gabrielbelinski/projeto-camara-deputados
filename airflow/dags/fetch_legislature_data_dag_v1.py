@@ -1,7 +1,6 @@
 from airflow import DAG
 from airflow.providers.standard.operators.empty import EmptyOperator
 from airflow.providers.standard.operators.bash import BashOperator
-from airflow.providers.standard.sensors.external_task import ExternalTaskMarker
 from airflow.providers.standard.operators.trigger_dagrun import TriggerDagRunOperator
 import datetime, os, dotenv
 import command_fetch_data_base as c
@@ -10,7 +9,7 @@ dotenv.load_dotenv()
 
 with DAG(
     dag_id="fetch_legislature_data",
-    start_date=datetime.datetime(2026, 5, 11),
+    start_date=datetime.datetime(2026, 5, 15),
     schedule="0 0 1 */3 *",
     catchup=False,
     default_args={
