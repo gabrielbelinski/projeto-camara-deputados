@@ -11,9 +11,8 @@ class SilverLayer:
 
         self.spark = (
             SparkSession.builder
-            .appName("SilverLayer")
             .config("spark.sql.adaptive.enabled", "true")
-            .config("spark.sql.session.timeZone", "UTC")
+            .config("spark.sql.session.timeZone", "UTC-3")
             .getOrCreate()
         )
 
